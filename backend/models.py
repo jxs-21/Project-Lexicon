@@ -20,7 +20,7 @@ class DocumentChunk(Base):
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(Integer, ForeignKey("documents.id"))
     content = Column(Text)
-    embedding = Column(Vector(1536)) # OpenAI/Ada dimension
+    embedding = Column(Vector(384)) # BAAI/bge-small-en-v1.5 dimension
     
     document = relationship("Document", back_populates="chunks")
 

@@ -9,10 +9,10 @@ sleep 5 # Wait for DB to start
 echo "Starting Backend..."
 # Assuming venv is active or available
 export DATABASE_URL="postgresql://user:password@localhost:5432/lexicon"
-# export OPENAI_API_KEY="sk-..." # User needs to set this if testing embedding
+source venv/bin/activate
 nohup uvicorn backend.main:app --host 0.0.0.0 --port 8000 &
 PID=$!
-sleep 5 # Wait for App to start
+sleep 30 # Wait for App to start (Model download takes time)
 
 # 3. Test Ingest
 echo "Testing Ingestion..."

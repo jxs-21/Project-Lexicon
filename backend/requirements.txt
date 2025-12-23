@@ -4,6 +4,7 @@ sqlalchemy
 psycopg2-binary
 pgvector
 haystack-ai
+sentence-transformers
 python-multipart
 python-dotenv
 anthropic

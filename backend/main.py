@@ -5,16 +5,25 @@ from typing import List
 import uvicorn
 import shutil
 import os
+import anthropic
+from dotenv import load_dotenv
 
 from .database import engine, get_db, Base
 from .models import Document, DocumentChunk, AuditLog
 from .rag_service import RAGService
 
+load_dotenv()
+
 # Create Tables (for MVP simplification)
+with engine.connect() as connection:
+    connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    connection.commit()
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Lexicon RAG API")
 rag_service = RAGService()
+anthropic_client = anthropic.Anthropic() # Uses ANTHROPIC_API_KEY from env
 
 @app.post("/ingest")
 async def ingest_document(file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -37,6 +46,7 @@ async def ingest_document(file: UploadFile = File(...), db: Session = Depends(ge
     # 4. Store Chunks
     for chunk in processed_docs:
         # Check if embedding exists (might be mock or None)
+        # With local embeddings, it should always exist.
         embedding_val = chunk.embedding if hasattr(chunk, "embedding") and chunk.embedding is not None else None
         
         db_chunk = DocumentChunk(
@@ -65,12 +75,33 @@ async def query_documents(query: dict, db: Session = Depends(get_db)):
         DocumentChunk.embedding.l2_distance(query_embedding)
     ).limit(3).all()
     
-    response_text = "Found relevant chunks:\n" + "\n---\n".join([r.content for r in results])
+    context = "\n\n---\n\n".join([r.content for r in results])
     
-    # 3. Audit Log
+    # 3. Generate Answer (Anthropic)
+    system_prompt = "You are a legal AI assistant. Answer the user's question based strictly on the provided context. If the answer is not in the context, state that you cannot answer."
+    user_message = f"Context:\n{context}\n\nQuestion: {query_text}"
+    
+    try:
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            answer = "Anthropic API Key not found. Please set ANTHROPIC_API_KEY."
+        else:
+            message = anthropic_client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=1000,
+                temperature=0,
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": user_message}
+                ]
+            )
+            answer = message.content[0].text
+    except Exception as e:
+        answer = f"Error generating answer: {str(e)}"
+    
+    # 4. Audit Log
     audit = AuditLog(
         query_text=query_text,
-        response_text=response_text
+        response_text=answer
     )
     db.add(audit)
     db.commit()
@@ -78,7 +109,7 @@ async def query_documents(query: dict, db: Session = Depends(get_db)):
     return {
         "query": query_text,
         "results": [{"content": r.content, "id": r.id} for r in results],
-        "answer": "This is a retrieval-only MVP response. LLM generation to be added."
+        "answer": answer
     }
 
 if __name__ == "__main__":
